@@ -22,6 +22,8 @@ import { PRESETS } from "./presets";
 import { Coordinate, SolutionStatus, SolverResponse, Preset } from "./types";
 import { solveBUSPH } from "./bu_sph";
 
+import { GridView } from "./components/GridView";
+
 export default function App() {
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('sm');
 
@@ -39,14 +41,14 @@ export default function App() {
   // Active polyomino P coordinates
   const [polyomino, setPolyomino] = useState<Coordinate[]>(PRESETS[0].coordinates);
   
-  // Solver outcomes
-  const [solverResult, setSolverResult] = useState<SolverResponse | null>({
-    status: 'OPTIMAL',
-    support: [],
-    edges: [],
-    ranks: {}
-  });
-  const [solverStatus, setSolverStatus] = useState<SolutionStatus>('IDLE');
+  // Solver outcomes for CP-SAT
+  const [resultCPSAT, setResultCPSAT] = useState<SolverResponse | null>(null);
+  const [statusCPSAT, setStatusCPSAT] = useState<SolutionStatus>('IDLE');
+  
+  // Solver outcomes for BU-SPH
+  const [resultBUSPH, setResultBUSPH] = useState<SolverResponse | null>(null);
+  const [statusBUSPH, setStatusBUSPH] = useState<SolutionStatus>('IDLE');
+
   const [solverError, setSolverError] = useState<string | null>(null);
   
   // Selected preset
@@ -55,6 +57,7 @@ export default function App() {
   // Visual toggles
   const [showDirections, setShowDirections] = useState<boolean>(true);
   const [showRanks, setShowRanks] = useState<boolean>(false);
+  const [paintMode, setPaintMode] = useState<'add' | 'remove' | null>(null);
   const [explanationExpanded, setExplanationExpanded] = useState<boolean>(true);
   const [codeViewerExpanded, setCodeViewerExpanded] = useState<boolean>(false);
 
@@ -72,35 +75,50 @@ export default function App() {
   // Convert coordinate array to a string key for efficient map lookup e.g. "x,y"
   const getCoordKey = (x: number, y: number) => `${x},${y}`;
 
-  // Check if a coordinate exists in polyomino set
-  const isPolyomino = (x: number, y: number) => {
-    return polyomino.some(([px, py]) => px === x && py === y);
-  };
+  // Global mouse up to reset paint drag
+  useEffect(() => {
+    const handleMouseUp = () => setPaintMode(null);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
 
-  // Check if a coordinate exists in the active support response
-  const isSupport = (x: number, y: number) => {
-    if (!solverResult || !solverResult.support) return false;
-    return solverResult.support.some(([sx, sy]) => sx === x && sy === y);
-  };
-
-  // Toggle cell on click
-  const handleCellClick = (x: number, y: number) => {
-    const exists = isPolyomino(x, y);
-    let newPoly: Coordinate[];
-    
-    if (exists) {
-      newPoly = polyomino.filter(([px, py]) => !(px === x && py === y));
-      addLog(`Pixel entfernt an (${x}, ${y})`);
-    } else {
-      newPoly = [...polyomino, [x, y]];
-      addLog(`Pixel gezeichnet an (${x}, ${y})`);
-    }
-    
-    setPolyomino(newPoly);
+  // Update solver when grid gets modified
+  const invalidateSolver = () => {
     setSelectedPresetId("custom");
-    // Invalidate stale solver output when grid is modified
-    setSolverResult(null);
-    setSolverStatus('IDLE');
+    setResultCPSAT(null);
+    setStatusCPSAT('IDLE');
+    setResultBUSPH(null);
+    setStatusBUSPH('IDLE');
+  };
+
+  // Toggle cell on down or enter
+  const handleCellInteraction = (x: number, y: number, interactionType: 'down' | 'enter') => {
+    setPolyomino(prev => {
+      const exists = prev.some(([px, py]) => px === x && py === y);
+      
+      if (interactionType === 'down') {
+        const newMode = exists ? 'remove' : 'add';
+        setPaintMode(newMode);
+        
+        invalidateSolver();
+        if (newMode === 'add') {
+          addLog(`Pixel gezeichnet an (${x}, ${y})`);
+          return [...prev, [x, y]];
+        } else {
+          addLog(`Pixel entfernt an (${x}, ${y})`);
+          return prev.filter(([px, py]) => !(px === x && py === y));
+        }
+      } else if (interactionType === 'enter' && paintMode) {
+        if (paintMode === 'add' && !exists) {
+          invalidateSolver();
+          return [...prev, [x, y]];
+        } else if (paintMode === 'remove' && exists) {
+          invalidateSolver();
+          return prev.filter(([px, py]) => !(px === x && py === y));
+        }
+      }
+      return prev;
+    });
   };
 
   // Handle Preset Selection
@@ -122,8 +140,10 @@ export default function App() {
 
     setPolyomino(preset.coordinates);
     setSelectedPresetId(preset.id);
-    setSolverResult(null);
-    setSolverStatus('IDLE');
+    setResultCPSAT(null);
+    setStatusCPSAT('IDLE');
+    setResultBUSPH(null);
+    setStatusBUSPH('IDLE');
     setSolverError(null);
     addLog(`Preset '${preset.name}' geladen. (${preset.coordinates.length} Instanz-Pixel)`);
   };
@@ -132,30 +152,42 @@ export default function App() {
   const handleClear = () => {
     setPolyomino([]);
     setSelectedPresetId("custom");
-    setSolverResult(null);
-    setSolverStatus('EMPTY');
+    setResultCPSAT(null);
+    setStatusCPSAT('EMPTY');
+    setResultBUSPH(null);
+    setStatusBUSPH('EMPTY');
     setSolverError(null);
     addLog("Grid vollständig geleert.");
   };
 
-  // Core API call to invoke CP-SAT solver
-  const runSolver = async () => {
+  // Run Both Solvers side by side
+  const runBothSolvers = async () => {
     if (polyomino.length === 0) {
-      setSolverStatus('EMPTY');
-      setSolverResult(null);
+      setStatusCPSAT('EMPTY');
+      setResultCPSAT(null);
+      setStatusBUSPH('EMPTY');
+      setResultBUSPH(null);
       addLog("Fehler: Polyomino enthält keine Zellen. Zeichne zuerst etwas auf das Grid!");
       return;
     }
 
-    setSolverStatus('RUNNING');
-    addLog("Sende Polyomino-Koordinaten an Python backend (CP-SAT Solver)...");
+    addLog("Starte Evaluierung (CP-SAT Optimum vs BU-SPH Approximation)...");
+    
+    // 1. Run BU-SPH Algorithm locally (Fast)
+    setStatusBUSPH('RUNNING');
+    const busphRes = solveBUSPH(polyomino);
+    setResultBUSPH(busphRes);
+    setStatusBUSPH(busphRes.status);
+    addLog(`BU-SPH abgeschlossen! Benötigt: ${busphRes.support.length} Pixel.`);
+
+    // 2. Run CP-SAT through our Python API
+    setStatusCPSAT('RUNNING');
+    setSolverError(null);
     
     try {
       const response = await fetch("/api/solve", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coordinates: polyomino })
       });
 
@@ -170,65 +202,24 @@ export default function App() {
       }
 
       resData.engine = "CP-SAT";
-      setSolverResult(resData);
-      setSolverStatus(resData.status);
+      setResultCPSAT(resData);
+      setStatusCPSAT(resData.status);
       setSolverError(null);
 
       const supportCount = resData.support.length;
-      addLog(`CP-SAT abgeschlossen! Status: ${resData.status}. Optimaler Support benötigt: ${supportCount} Pixel.`);
-      if (supportCount === 0) {
-         addLog("Spektakulär! Keine Support-Strukturen notwendig (das Polyomino hält sich selbst).");
-      } else {
-         addLog(`Support-Koordinaten berechnet: ${JSON.stringify(resData.support)}`);
-      }
-
+      addLog(`CP-SAT abgeschlossen! Optimaler Support benötigt: ${supportCount} Pixel.`);
     } catch (err: any) {
       console.error(err);
-      setSolverStatus('ERROR');
+      setStatusCPSAT('ERROR');
       setSolverError(err.message || "Verbindung zum Solver-Backend fehlgeschlagen.");
-      addLog(`Fehler beim Lösen: ${err.message || "Unknown error"}`);
+      addLog(`Fehler beim CP-SAT Lösen: ${err.message || "Unknown error"}`);
     }
   };
 
-  // Trigger solver automatically on first render to display default "Cave" state
+  // Trigger solver automatically on first render
   useEffect(() => {
-    runSolver();
+    runBothSolvers();
   }, []);
-
-  // Helper to render Arrows inside cells showing support flow representation
-  const getDirectionArrow = (x: number, y: number) => {
-    if (!solverResult || !solverResult.edges) return null;
-    
-    // Find if there is an edge starting from this point
-    const edge = solverResult.edges.find(e => e.from[0] === x && e.from[1] === y);
-    if (!edge) return null;
-
-    const [tx, ty] = edge.to;
-    const dx = tx - x;
-    const dy = ty - y;
-
-    // Arrow pointing directions
-    if (dy === -1) {
-      return (
-        <svg className="w-5 h-5 text-white/70 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-        </svg>
-      );
-    } else if (dx === -1) {
-      return (
-        <svg className="w-5 h-5 text-white/70 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-        </svg>
-      );
-    } else if (dx === 1) {
-      return (
-        <svg className="w-5 h-5 text-white/70 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-        </svg>
-      );
-    }
-    return null;
-  };
 
   const pythonCode = `from ortools.sat.python import cp_model
 
@@ -301,6 +292,11 @@ def solve_1msta_exact(polyomino_coords):
         return [(x, y) for (x, y) in S if solver.Value(S[x, y]) == 1]
     return None`;
 
+  // Comparison variables
+  let cpsatCount = resultCPSAT?.support ? resultCPSAT.support.length : 0;
+  let busphCount = resultBUSPH?.support ? resultBUSPH.support.length : 0;
+  let factor = cpsatCount > 0 ? (busphCount / cpsatCount).toFixed(2) : '-';
+
   return (
     <div id="msta_app_root" className="min-h-screen flex flex-col antialiased bg-slate-50 text-slate-900 border border-slate-200">
       
@@ -311,7 +307,7 @@ def solve_1msta_exact(polyomino_coords):
             <Cpu className="w-6 h-6 text-white anim-pulse-slow" />
           </div>
           <div>
-            <h1 className="text-xl font-bold font-sans text-white tracking-tight uppercase">1-MSTA CP-SAT Engine <span className="font-mono text-xs text-indigo-400 ml-2 font-semibold">v1.0.4-beta</span></h1>
+            <h1 className="text-xl font-bold font-sans text-white tracking-tight uppercase">1-MSTA Engine <span className="font-mono text-xs text-indigo-400 ml-2 font-semibold">CP-SAT vs BU-SPH</span></h1>
           </div>
         </div>
         
@@ -320,51 +316,48 @@ def solve_1msta_exact(polyomino_coords):
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span> SYSTEM ACTIVE
           </div>
           <div className="px-4 py-1.5 bg-slate-800 rounded border border-slate-700 font-mono text-indigo-300">
-            BUILD MODE
+            COMPARE MODE
           </div>
         </div>
       </header>
 
       {/* Main Workspace Layout divided horizontally */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="flex-1 w-full max-w-full mx-auto px-4 md:px-6 py-6 grid grid-cols-1 xl:grid-cols-12 gap-6">
         
-        {/* Left Side: Parameters, Presets and Interactive Controls (5 cols) */}
-        <section id="sidebar_controls" className="lg:col-span-4 flex flex-col space-y-6">
+        {/* Left Side: Parameters, Presets and Interactive Controls (4 cols) */}
+        <section id="sidebar_controls" className="xl:col-span-3 xl:col-start-1 flex flex-col space-y-6">
           
           {/* Quick Metrics Bar */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 flex justify-between items-center shadow-sm">
-            <div className="flex flex-col">
-              <span className="text-xs font-mono text-slate-400">POLYOMINO (P)</span>
-              <span className="text-2xl font-bold text-slate-800 tracking-tight">{polyomino.length} <span className="text-xs text-slate-500">Pixel</span></span>
-            </div>
-            <div className="border-r border-slate-200 h-8"></div>
-            <div className="flex flex-col">
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono text-slate-400">SUPPORT (S)</span>
-                {solverResult?.engine && (
-                   <span className="text-[8px] uppercase font-bold text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">{solverResult.engine}</span>
-                )}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col space-y-3 shadow-sm">
+            <div className="flex justify-between items-center">
+              <div className="flex flex-col">
+                <span className="text-xs font-mono text-slate-400">POLYOMINO (P)</span>
+                <span className="text-xl font-bold text-slate-800 tracking-tight">{polyomino.length} <span className="text-xs font-normal text-slate-500">Pixel</span></span>
               </div>
-              <span className="text-2xl font-bold text-indigo-600 tracking-tight">
-                {solverStatus === 'RUNNING' ? (
-                  <RefreshCw className="w-6 h-6 animate-spin text-indigo-500 py-1" />
-                ) : (
-                  solverResult?.support?.length ?? '?'
-                )} <span className="text-xs text-indigo-500">Pixel</span>
-              </span>
+              
+              <div className="flex flex-col items-end border-l border-slate-200 pl-4">
+                <span className="text-[10px] font-mono text-slate-400 uppercase">APPROX. FAKTOR</span>
+                <span className="text-xl font-bold text-indigo-600 tracking-tight">
+                  {statusCPSAT === 'RUNNING' || statusCPSAT === 'IDLE' ? '-' : `${factor}x`}
+                </span>
+              </div>
             </div>
-            <div className="border-r border-slate-200 h-8"></div>
-            <div className="flex flex-col items-end">
-              <span className="text-xs font-mono text-slate-400">SOLVER STATS</span>
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded mt-1 overflow-hidden tracking-normal ${
-                solverStatus === 'OPTIMAL' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 
-                solverStatus === 'FEASIBLE' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 
-                solverStatus === 'EMPTY' ? 'bg-slate-50 text-slate-500 border border-slate-200' :
-                solverStatus === 'RUNNING' ? 'bg-indigo-50 text-indigo-500 border border-indigo-200 animate-pulse' :
-                'bg-red-50 text-red-500 border border-red-200'
-              }`}>
-                {solverStatus}
-              </span>
+            
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+              <div className="flex flex-col p-2 bg-slate-50 rounded border border-slate-200">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">CP-SAT (Optimum)</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-bold text-slate-800">{statusCPSAT === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-slate-400"/> : cpsatCount}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${statusCPSAT === 'OPTIMAL' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{statusCPSAT}</span>
+                </div>
+              </div>
+              <div className="flex flex-col p-2 bg-indigo-50 rounded border border-indigo-100">
+                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-1">BU-SPH (Heuristic)</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-bold text-indigo-700">{statusBUSPH === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-400"/> : busphCount}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${statusBUSPH === 'FEASIBLE' ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-200 text-slate-500'}`}>{statusBUSPH}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -377,36 +370,13 @@ def solve_1msta_exact(polyomino_coords):
 
             <div className="grid grid-cols-2 gap-3">
               <button
-                id="btn_run_solver"
-                onClick={runSolver}
-                disabled={solverStatus === 'RUNNING'}
-                className="col-span-1 bg-slate-900 text-white hover:bg-slate-800 font-medium px-4 py-3 rounded-lg flex flex-col items-center justify-center space-y-1 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
+                id="btn_run_all"
+                onClick={runBothSolvers}
+                disabled={statusCPSAT === 'RUNNING'}
+                className="col-span-2 bg-slate-900 text-white hover:bg-slate-800 font-medium px-4 py-3 rounded-lg flex flex-col items-center justify-center space-y-1 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
               >
-                <div className="flex items-center space-x-1.5"><Play className="w-3.5 h-3.5" /> <span>CP-SAT</span></div>
-                <span className="text-[10px] text-slate-400 font-normal">Exaktes Optimum</span>
-              </button>
-
-              <button
-                id="btn_run_busph"
-                onClick={() => {
-                  if (polyomino.length === 0) {
-                    setSolverStatus('EMPTY');
-                    setSolverResult(null);
-                    addLog("Fehler: Polyomino enthält keine Zellen.");
-                    return;
-                  }
-                  addLog("Berechne Support via BU-SPH (2-Approximation)...");
-                  const res = solveBUSPH(polyomino);
-                  setSolverResult(res);
-                  setSolverStatus(res.status);
-                  setSolverError(null);
-                  addLog(`BU-SPH abgeschlossen! ${res.support.length} Support-Pixel benötigt.`);
-                }}
-                disabled={solverStatus === 'RUNNING'}
-                className="col-span-1 bg-emerald-600 text-white hover:bg-emerald-700 font-medium px-4 py-3 rounded-lg flex flex-col items-center justify-center space-y-1 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
-              >
-                <div className="flex items-center space-x-1.5"><Play className="w-3.5 h-3.5" /> <span>BU-SPH</span></div>
-                <span className="text-[10px] text-emerald-200 font-normal">Fast 2-Approximation</span>
+                <div className="flex items-center space-x-1.5"><Play className="w-3.5 h-3.5" /> <span>Beide Solver Evaluieren</span></div>
+                <span className="text-[10px] text-slate-400 font-normal">CP-SAT Optimum vs. BU-SPH Approximation</span>
               </button>
 
               <button
@@ -436,7 +406,7 @@ def solve_1msta_exact(polyomino_coords):
                     type="checkbox" 
                     checked={showDirections} 
                     onChange={(e) => setShowDirections(e.target.checked)} 
-                    className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white"
+                    className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white cursor-pointer"
                   />
                   <span>Support-Kraftrichtung einblenden</span>
                 </label>
@@ -448,7 +418,7 @@ def solve_1msta_exact(polyomino_coords):
                     type="checkbox" 
                     checked={showRanks} 
                     onChange={(e) => setShowRanks(e.target.checked)} 
-                    className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white"
+                    className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white cursor-pointer"
                   />
                   <span>Ränge einblenden (Rank_x_y)</span>
                 </label>
@@ -475,7 +445,7 @@ def solve_1msta_exact(polyomino_coords):
               <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
               <span>Presets & Benchmarks</span>
             </h2>
-            <div className="space-y-2.5 max-h-[290px] overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
               {PRESETS.map((p) => (
                 <button
                   key={p.id}
@@ -507,9 +477,9 @@ def solve_1msta_exact(polyomino_coords):
                 <span className="w-2 h-2 rounded-full bg-amber-400"></span>
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               </div>
-              <span className="text-[10px] uppercase text-slate-400 font-bold">Terminal Output - cp_model.CpSolver()</span>
+              <span className="text-[10px] uppercase text-slate-400 font-bold">Terminal Logs</span>
             </div>
-            <div className="h-[148px] overflow-y-auto space-y-1.5 pr-1 text-emerald-400 custom-scrollbar mt-1">
+            <div className="h-[120px] overflow-y-auto space-y-1.5 pr-1 text-emerald-400 custom-scrollbar mt-1">
               {terminalLogs.map((log, index) => (
                 <div key={index} className="leading-5 break-words">
                   <span className="text-slate-500">&gt;</span> {log}
@@ -521,25 +491,14 @@ def solve_1msta_exact(polyomino_coords):
         </section>
 
         {/* Right Side: Visual Canvas Grid Workspace (8 cols) */}
-        <section id="vertical_canvas_area" className="lg:col-span-8 flex flex-col space-y-6">
+        <section id="vertical_canvas_area" className="xl:col-span-9 flex flex-col space-y-6 overflow-hidden">
           
           {/* Main Visual Interactive Workspace Canvas */}
-          <div className="bg-slate-100 border border-slate-200 rounded-2xl p-6 shadow-inner flex flex-col items-center justify-center relative min-h-[500px]">
+          <div className="bg-slate-100 border border-slate-200 rounded-2xl p-6 shadow-inner flex flex-col relative w-full overflow-hidden">
             
-            <div className="absolute top-4 left-4 flex flex-col">
-              <span className="text-[10px] tracking-widest font-mono text-indigo-600 uppercase font-bold">Interactive Grid</span>
-              <span className="text-xs text-slate-500">Klicke Zellen an, um das Polyomino (P) zu zeichnen/löschen.</span>
-            </div>
-
-            <div className="absolute top-4 right-4 flex space-x-3 items-center text-xs">
-              <div className="flex items-center space-x-1.5">
-                <span className="w-3.5 h-3.5 bg-slate-900 border border-slate-700 rounded-sm"></span>
-                <span className="text-slate-600 font-bold">POLYOMINO (P)</span>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <span className="w-3.5 h-3.5 bg-indigo-500 rounded-sm border border-indigo-600 animate-pulse"></span>
-                <span className="text-slate-600 font-bold">SUPPORT (S)</span>
-              </div>
+            <div className="flex flex-col mb-4">
+              <span className="text-[10px] tracking-widest font-mono text-indigo-600 uppercase font-bold">Interactive Mirrors</span>
+              <span className="text-xs text-slate-500">Edit the Polyomino (P) on either grid, results synchronize automatically.</span>
             </div>
 
             {/* Error Message banner */}
@@ -550,161 +509,51 @@ def solve_1msta_exact(polyomino_coords):
               </div>
             )}
 
-            {/* The main Grid workspace */}
-            <div id="msta_grid_container" className="flex flex-col relative bg-white p-6 rounded-2xl border border-slate-200 shadow-xl mt-8 overflow-x-auto max-w-full">
+            {/* Side-by-side Grids */}
+            <div className="flex max-w-full overflow-x-auto space-x-6 pb-4 custom-scrollbar lg:flex-row flex-col lg:space-y-0 space-y-6">
               
-              {/* Rows go from max Y to min Y inside visual grid */}
-              {Array.from({ length: MAX_GRID_Y - MIN_GRID_Y + 1 }).map((_, rIdx) => {
-                const y = MAX_GRID_Y - rIdx;
-                return (
-                  <div key={y} className="flex select-none">
-                    
-                    {/* Y Axis Labels */}
-                    <div className="w-8 flex items-center justify-end pr-2.5 font-mono text-xs text-slate-400 h-11 border-r border-slate-100">
-                      y={y}
-                    </div>
-
-                    {/* Columns representing X axis */}
-                    {Array.from({ length: MAX_GRID_X - MIN_GRID_X + 1 }).map((_, cIdx) => {
-                      const x = MIN_GRID_X + cIdx;
-                      const isP = isPolyomino(x, y);
-                      const isS = isSupport(x, y);
-                      const rankValue = solverResult?.ranks?.[`${x},${y}`];
-
-                      return (
-                        <div
-                          key={x}
-                          onClick={() => handleCellClick(x, y)}
-                          className={`w-11 h-11 border-b border-r border-dashed border-slate-200 flex flex-col items-center justify-center relative cursor-pointer group transition-all duration-150 ${
-                            isP 
-                            ? "bg-slate-900 border-solid border-slate-900 font-semibold" 
-                            : isS 
-                            ? "bg-indigo-500 border-solid border-indigo-600 text-white font-medium shadow-sm" 
-                            : "bg-slate-50 hover:bg-slate-100"
-                          }`}
-                          title={`Koordinate: (${x}, ${y})`}
-                        >
-                          {/* Outer Border for ground y=0 */}
-                          {y === 0 && (
-                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400" title="Bodenverankerung" />
-                          )}
-
-                          {/* Render Arrow directions for support flow */}
-                          {showDirections && (isP || isS) && (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              {getDirectionArrow(x, y)}
-                            </div>
-                          )}
-
-                          {/* Human readable label inside voxel */}
-                          {isP && (
-                            <span className="text-[10px] text-white font-mono font-bold z-10 select-none">P</span>
-                          )}
-                          {isS && (
-                            <span className="text-[10px] text-white font-mono font-bold z-10 select-none animate-pulse">S</span>
-                          )}
-
-                          {/* Rank overlay code */}
-                          {showRanks && rankValue !== undefined && (isP || isS) && (
-                            <div className="absolute bottom-0.5 right-1 text-[8px] font-mono text-indigo-200 z-15 bg-slate-900/80 px-0.5 rounded leading-none">
-                              r={rankValue}
-                            </div>
-                          )}
-
-                          {/* Subtle hover indicators */}
-                          <div className="absolute inset-0 border border-transparent group-hover:border-indigo-400/40 pointer-events-none" />
-                        </div>
-                      );
-                    })}
-
+              {/* Left Grid: CP-SAT */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xl flex-1 flex flex-col min-w-max">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold tracking-widest text-slate-700 uppercase">CP-SAT Model</span>
+                  <div className="flex items-center space-x-1.5 text-[10px]">
+                    <span className="w-3 h-3 bg-slate-900 border border-slate-700 rounded-sm"></span><span className="font-bold text-slate-400 mr-2">P</span>
+                    <span className="w-3 h-3 bg-indigo-500 rounded-sm border border-indigo-600"></span><span className="font-bold text-indigo-400">S</span>
                   </div>
-                );
-              })}
+                </div>
+                <div className="flex justify-center border border-slate-100 p-2 rounded-xl bg-slate-50">
+                  <GridView 
+                    polyomino={polyomino} 
+                    solverResult={resultCPSAT} 
+                    handleCellInteraction={handleCellInteraction}
+                    minX={MIN_GRID_X} maxX={MAX_GRID_X} minY={MIN_GRID_Y} maxY={MAX_GRID_Y}
+                    showDirections={showDirections} showRanks={showRanks}
+                  />
+                </div>
+              </div>
 
-              {/* X Axis Labels under rows */}
-              <div className="flex">
-                <div className="w-8" /> {/* Blank corner gap */}
-                {Array.from({ length: MAX_GRID_X - MIN_GRID_X + 1 }).map((_, cIdx) => {
-                  const x = MIN_GRID_X + cIdx;
-                  return (
-                    <div key={x} className="w-11 text-center pt-2 font-mono text-[10px] text-slate-400">
-                      x={x}
-                    </div>
-                  );
-                })}
+              {/* Right Grid: BU-SPH */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xl flex-1 flex flex-col min-w-max">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold tracking-widest text-indigo-600 uppercase">BU-SPH Algorithm</span>
+                  <div className="flex items-center space-x-1.5 text-[10px]">
+                    <span className="w-3 h-3 bg-slate-900 border border-slate-700 rounded-sm"></span><span className="font-bold text-slate-400 mr-2">P</span>
+                    <span className="w-3 h-3 bg-indigo-500 rounded-sm border border-indigo-600"></span><span className="font-bold text-indigo-400">S</span>
+                  </div>
+                </div>
+                <div className="flex justify-center border border-slate-100 p-2 rounded-xl bg-slate-50">
+                  <GridView 
+                    polyomino={polyomino} 
+                    solverResult={resultBUSPH} 
+                    handleCellInteraction={handleCellInteraction}
+                    minX={MIN_GRID_X} maxX={MAX_GRID_X} minY={MIN_GRID_Y} maxY={MAX_GRID_Y}
+                    showDirections={showDirections} showRanks={showRanks}
+                  />
+                </div>
               </div>
 
             </div>
-
-
-
-            {/* Visual grounding feedback bottom label */}
-            <div className="mt-6 flex flex-wrap justify-center gap-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
-              <span className="flex items-center space-x-1.5">
-                <span className="w-2.5 h-1 bg-emerald-400 rounded"></span>
-                <span>Y = 0 (Boden / Fundament)</span>
-              </span>
-              <span className="flex items-center space-x-1.5">
-                <span className="border-b border-dashed border-slate-400 w-4 inline-block"></span>
-                <span>Zyklen-Einflussbereich</span>
-              </span>
-              <span className="flex items-center space-x-1.5">
-                <span className="text-indigo-500">&darr; &larr; &rarr;</span>
-                <span>Richtungsketten zum Fundament</span>
-              </span>
-            </div>
-
           </div>
-
-          {/* Interactive Scientific Explanation Section */}
-          <AnimatePresence>
-            {explanationExpanded && (
-              <motion.div
-                key="explainer_section"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 15 }}
-                className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4 font-sans"
-              >
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-                    <BookOpen className="w-4 h-4 text-indigo-500" />
-                    <span className="uppercase tracking-widest text-xs">Hintergrund & Zyklus-Eliminierung</span>
-                  </h3>
-                  <button 
-                    onClick={() => setExplanationExpanded(false)}
-                    className="text-slate-400 hover:text-slate-800 transition cursor-pointer"
-                  >
-                    <ChevronUp className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="text-xs text-slate-600 leading-relaxed space-y-3">
-                  <p>
-                    Bei der physikalischen Abstützung (z.B. im 3D-Druck) muss jedes Volumenelement (Voxel) stabil verankert sein. Übersetzt bedeutet das: 
-                    Jedes belegte Pixel <code className="text-indigo-600 bg-indigo-50 px-1 rounded">Occ[x, y]</code> muss über belegte Nachbarpixel ununterbrochen bis zum 
-                    Boden <code className="text-slate-500 bg-slate-50 border border-slate-100 font-mono px-1 rounded">(y = 0)</code> herabreichen. Die Richtungen der stützenden Kraftübertragung verlaufen 
-                    immer <strong>abwärts (y-1)</strong>, <strong>links (x-1)</strong> oder <strong>rechts (x+1)</strong>.
-                  </p>
-                  
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-2">
-                    <span className="font-bold text-sm text-slate-800 block">Das zyklische Paradoxon ("Luftschloss"):</span>
-                    <p className="text-slate-500 leading-relaxed">
-                      Einfache Weg-Bedingungen neigen zu unendlichen Schleifen. Ein Pixel stützt seinen linken Nachbarn, der stützt den rechten, 
-                      und im Kreis halten sie sich gegenseitig in der Luft, ohne je echte Verbindung zum Fundament zu besitzen.
-                    </p>
-                    <span className="font-bold text-sm text-slate-800 block mt-3">Die mathematische CP-SAT Lösung (Directed Tree):</span>
-                    <p className="text-slate-500 leading-relaxed">
-                      Das Python-Modell verhindert Luftschlösser über eine <code className="text-indigo-600 bg-indigo-50 px-1 font-mono rounded">Rank[x, y]</code> Variable. 
-                      Wenn Pixel A ein tragendes Glied von Pixel B ist, muss <code className="text-emerald-600 font-mono bg-emerald-50 px-1 rounded">Rank[B] &gt; Rank[A]</code> gelten. 
-                      Da der Rank am Boden <code className="text-emerald-600 font-mono bg-emerald-50 px-1 rounded">Rank[*, 0] = 0</code> beträgt und stetig wachsen muss, 
-                      sind ringförmige Selbststützen (Zyklen) mathematisch unmöglich.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Interactive Code Viewer Section */}
           <AnimatePresence>
