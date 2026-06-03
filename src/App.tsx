@@ -15,7 +15,8 @@ import {
   FileCode,
   ArrowRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Timer
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PRESETS } from "./presets";
@@ -59,6 +60,7 @@ export default function App() {
   const [showRanks, setShowRanks] = useState<boolean>(false);
   const [paintMode, setPaintMode] = useState<'add' | 'remove' | null>(null);
   const [codeViewerExpanded, setCodeViewerExpanded] = useState<boolean>(false);
+  const [timeLimit, setTimeLimit] = useState<number>(5.0);
 
   // Active terminal output log simulation
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
@@ -187,7 +189,7 @@ export default function App() {
       const response = await fetch("/api/solve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coordinates: polyomino })
+        body: JSON.stringify({ coordinates: polyomino, time_limit: timeLimit })
       });
 
       if (!response.ok) {
@@ -368,6 +370,25 @@ def solve_1msta_exact(polyomino_coords):
             </h2>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 flex items-center justify-between bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+                <div className="flex items-center space-x-2 text-slate-600">
+                  <Timer className="w-4 h-4" />
+                  <span className="text-xs font-medium text-slate-600">CP-SAT Zeitlimit:</span>
+                </div>
+                <div className="flex items-center space-x-2 relative">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(parseFloat(e.target.value) || 5.0)}
+                    className="w-16 bg-white border border-slate-300 rounded text-xs px-2 py-1 text-center font-mono outline-none focus:ring-1 focus:ring-slate-500 focus:border-slate-500"
+                  />
+                  <span className="text-[10px] text-slate-500 font-mono absolute -right-3">s</span>
+                </div>
+              </div>
+
               <button
                 id="btn_run_all"
                 onClick={runBothSolvers}

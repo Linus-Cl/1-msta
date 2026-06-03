@@ -11,7 +11,7 @@ app.use(express.json());
 // API route to solve the 1-MSTA problem via the python script
 app.post("/api/solve", async (req, res) => {
   try {
-    const { coordinates } = req.body;
+    const { coordinates, time_limit } = req.body;
     if (!coordinates || !Array.isArray(coordinates)) {
       res.status(400).json({ error: "Invalid coordinates format. Must be an array of [x, y] coordinates." });
       return;
@@ -48,7 +48,7 @@ app.post("/api/solve", async (req, res) => {
     });
 
     // Write input coordinates to Python stdin
-    p.stdin.write(JSON.stringify(coordinates));
+    p.stdin.write(JSON.stringify({ coordinates, time_limit: time_limit ?? 5.0 }));
     p.stdin.end();
 
   } catch (err: any) {

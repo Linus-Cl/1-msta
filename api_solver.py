@@ -2,7 +2,7 @@ import sys
 import json
 from ortools.sat.python import cp_model
 
-def solve_1msta_json(polyomino_coords):
+def solve_1msta_json(polyomino_coords, time_limit=5.0):
     """
     Solves the 1-MSTA problem exactly using CP-SAT and returns support coords and directed edges.
     """
@@ -76,7 +76,8 @@ def solve_1msta_json(polyomino_coords):
     
     # --- SOLVE ---
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 5.0 # Ensure it doesn't hang the request
+    if time_limit > 0:
+        solver.parameters.max_time_in_seconds = float(time_limit)
     status = solver.Solve(model)
     
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -123,8 +124,14 @@ if __name__ == "__main__":
             res = solve_1msta_json(test_polyomino)
             print(json.dumps(res, indent=2))
         else:
-            polyomino_coords = json.loads(input_data)
-            res = solve_1msta_json(polyomino_coords)
+            payload = json.loads(input_data)
+            if isinstance(payload, list):
+                polyomino_coords = payload
+                res = solve_1msta_json(polyomino_coords)
+            else:
+                polyomino_coords = payload.get("coordinates", [])
+                time_limit = payload.get("time_limit", 5.0)
+                res = solve_1msta_json(polyomino_coords, time_limit)
             print(json.dumps(res))
     except Exception as e:
         print(json.dumps({"status": "ERROR", "message": str(e)}))

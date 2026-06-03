@@ -35,7 +35,7 @@ function computeAnchored(P_set: Set<string>, S_add: Set<string>): Set<string> {
                 if (!anchored.has(key)) {
                     // Force only travels UP in terms of evaluation (supported from below)
                     // So if below, left, or right is already anchored, this point becomes anchored.
-                    const downAnchored = (y - 1 === 0) || anchored.has(`${x},${y-1}`);
+                    const downAnchored = anchored.has(`${x},${y-1}`);
                     const leftAnchored = anchored.has(`${x-1},${y}`);
                     const rightAnchored = anchored.has(`${x+1},${y}`);
                     
