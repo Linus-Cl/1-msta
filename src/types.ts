@@ -16,6 +16,7 @@ export interface SolverResponse {
   max_x?: number;
   max_y?: number;
   message?: string;
+  engine?: string;
 }
 
 export interface Preset {

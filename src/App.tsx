@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { PRESETS } from "./presets";
 import { Coordinate, SolutionStatus, SolverResponse, Preset } from "./types";
+import { solveBUSPH } from "./bu_sph";
 
 export default function App() {
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('sm');
@@ -168,6 +169,7 @@ export default function App() {
         throw new Error(resData.message || "Unbekannter Solver-Fehler.");
       }
 
+      resData.engine = "CP-SAT";
       setSolverResult(resData);
       setSolverStatus(resData.status);
       setSolverError(null);
@@ -337,7 +339,12 @@ def solve_1msta_exact(polyomino_coords):
             </div>
             <div className="border-r border-slate-200 h-8"></div>
             <div className="flex flex-col">
-              <span className="text-xs font-mono text-slate-400">SUPPORT (S)</span>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-mono text-slate-400">SUPPORT (S)</span>
+                {solverResult?.engine && (
+                   <span className="text-[8px] uppercase font-bold text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">{solverResult.engine}</span>
+                )}
+              </div>
               <span className="text-2xl font-bold text-indigo-600 tracking-tight">
                 {solverStatus === 'RUNNING' ? (
                   <RefreshCw className="w-6 h-6 animate-spin text-indigo-500 py-1" />
@@ -373,10 +380,33 @@ def solve_1msta_exact(polyomino_coords):
                 id="btn_run_solver"
                 onClick={runSolver}
                 disabled={solverStatus === 'RUNNING'}
-                className="col-span-2 bg-slate-900 text-white hover:bg-slate-800 font-medium px-4 py-3 rounded-lg flex items-center justify-center space-x-2 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
+                className="col-span-1 bg-slate-900 text-white hover:bg-slate-800 font-medium px-4 py-3 rounded-lg flex flex-col items-center justify-center space-y-1 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
               >
-                <Play className="w-4 h-4" />
-                <span>Optimalen Support berechnen</span>
+                <div className="flex items-center space-x-1.5"><Play className="w-3.5 h-3.5" /> <span>CP-SAT</span></div>
+                <span className="text-[10px] text-slate-400 font-normal">Exaktes Optimum</span>
+              </button>
+
+              <button
+                id="btn_run_busph"
+                onClick={() => {
+                  if (polyomino.length === 0) {
+                    setSolverStatus('EMPTY');
+                    setSolverResult(null);
+                    addLog("Fehler: Polyomino enthält keine Zellen.");
+                    return;
+                  }
+                  addLog("Berechne Support via BU-SPH (2-Approximation)...");
+                  const res = solveBUSPH(polyomino);
+                  setSolverResult(res);
+                  setSolverStatus(res.status);
+                  setSolverError(null);
+                  addLog(`BU-SPH abgeschlossen! ${res.support.length} Support-Pixel benötigt.`);
+                }}
+                disabled={solverStatus === 'RUNNING'}
+                className="col-span-1 bg-emerald-600 text-white hover:bg-emerald-700 font-medium px-4 py-3 rounded-lg flex flex-col items-center justify-center space-y-1 shadow hover:shadow-md active:scale-98 transition duration-150 disabled:opacity-50 cursor-pointer text-sm"
+              >
+                <div className="flex items-center space-x-1.5"><Play className="w-3.5 h-3.5" /> <span>BU-SPH</span></div>
+                <span className="text-[10px] text-emerald-200 font-normal">Fast 2-Approximation</span>
               </button>
 
               <button
@@ -606,21 +636,7 @@ def solve_1msta_exact(polyomino_coords):
 
             </div>
 
-            {/* Empty grid state advice */}
-            {polyomino.length === 0 && (
-              <div className="absolute inset-0 bg-white/40 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center select-none rounded-2xl pointer-events-none">
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xl max-w-sm pointer-events-auto">
-                  <span className="text-sm font-semibold text-slate-800 block mb-1">Grid ist leer</span>
-                  <span className="text-xs text-slate-500 block mb-3">Zeichne eine Struktur oder lade ein Preset oben aus dem Menü, um loszulegen!</span>
-                  <button 
-                    onClick={() => selectPreset(PRESETS[0])}
-                    className="text-xs bg-indigo-500 hover:bg-indigo-600 text-white font-semibold px-4 py-1.5 rounded-lg cursor-pointer"
-                  >
-                    Preset laden
-                  </button>
-                </div>
-              </div>
-            )}
+
 
             {/* Visual grounding feedback bottom label */}
             <div className="mt-6 flex flex-wrap justify-center gap-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
