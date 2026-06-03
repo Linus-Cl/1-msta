@@ -1,0 +1,6 @@
+{
+  "name": "1-MSTA Solver",
+  "description": "An interactive solver and visualizer for the 1-MSTA (Minimum Support Tree Area) problem, featuring exact CP-SAT and heuristic algorithms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
