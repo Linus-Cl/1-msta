@@ -26,8 +26,8 @@ export function GridView({
   const isMedium = cols <= 21 && cols > 13;
   const isLarge = cols > 21;
 
-  const wClass = isSmall ? "w-10" : isMedium ? "w-8 md:w-7 lg:w-8" : "w-6 md:w-5 lg:w-6";
-  const hClass = isSmall ? "h-10" : isMedium ? "h-8 md:h-7 lg:h-8" : "h-6 md:h-5 lg:h-6";
+  const wClass = isSmall ? "w-10" : isMedium ? "w-6 xl:w-7" : "w-5 xl:w-6";
+  const hClass = isSmall ? "h-10" : isMedium ? "h-6 xl:h-7" : "h-5 xl:h-6";
   const cellClass = `${wClass} ${hClass}`;
 
   // Check if a coordinate exists in polyomino set

@@ -1,5 +1,55 @@
 import { Coordinate, DirectedEdge, SolverResponse } from "./types";
 
+function computeAnchored(P_set: Set<string>, S_add: Set<string>): Set<string> {
+    const anchored = new Set<string>();
+    
+    // Group all points by Y
+    const byY: Record<number, [number, number][]> = {};
+    let maxY = 0;
+    
+    const addToByY = (x: number, y: number) => {
+        if (!byY[y]) byY[y] = [];
+        byY[y].push([x, y]);
+        if (y > maxY) maxY = y;
+    };
+    
+    for (const p of P_set) {
+        const [x, y] = p.split(',').map(Number);
+        if (y === 0) anchored.add(p);
+        addToByY(x, y);
+    }
+    for (const p of S_add) {
+        const [x, y] = p.split(',').map(Number);
+        if (y === 0) anchored.add(p);
+        addToByY(x, y);
+    }
+    
+    for (let y = 1; y <= maxY; y++) {
+        if (!byY[y]) continue;
+        
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const [x, _] of byY[y]) {
+                const key = `${x},${y}`;
+                if (!anchored.has(key)) {
+                    // Force only travels UP in terms of evaluation (supported from below)
+                    // So if below, left, or right is already anchored, this point becomes anchored.
+                    const downAnchored = (y - 1 === 0) || anchored.has(`${x},${y-1}`);
+                    const leftAnchored = anchored.has(`${x-1},${y}`);
+                    const rightAnchored = anchored.has(`${x+1},${y}`);
+                    
+                    if (downAnchored || leftAnchored || rightAnchored) {
+                        anchored.add(key);
+                        changed = true; // Cascade search for horizontal propagation
+                    }
+                }
+            }
+        }
+    }
+    return anchored;
+}
+
 export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
   if (polyomino.length === 0) {
     return { status: 'EMPTY', support: [], edges: [], engine: 'BU-SPH' };
@@ -9,7 +59,6 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
   const edges: DirectedEdge[] = [];
   
   const P_set = new Set(polyomino.map(c => `${c[0]},${c[1]}`));
-  const isSnet = (x: number, y: number) => P_set.has(`${x},${y}`) || S_add.has(`${x},${y}`);
 
   // Find local minima M
   const minima: Coordinate[] = [];
@@ -19,8 +68,7 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
     }
   }
 
-  // Break ties randomly or deterministically. We use deterministic iteration.
-  // Group by Y
+  // Iterate strictly bottom-up
   const H: Record<number, Coordinate[]> = {};
   for (const min of minima) {
     if (!H[min[1]]) H[min[1]] = [];
@@ -34,6 +82,9 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
   for (const y of sortedY) {
     let Hl = H[y];
     while (Hl.length > 0) {
+      // Recompute the dynamic grounded structures before every evaluation
+      const anchored = computeAnchored(P_set, S_add);
+      
       let bestCost = Infinity;
       let bestMove: { 
         mIndex: number, 
@@ -44,6 +95,13 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
       for (let i = 0; i < Hl.length; i++) {
         const [mx, my] = Hl[i];
         
+        // Skip if this minimum is already magically supported by previous operations!
+        if (anchored.has(`${mx},${my}`)) {
+            bestCost = 0;
+            bestMove = { mIndex: i, path: [], newEdges: [] };
+            break; 
+        }
+
         // Try all reasonable xB bounds to allow RLS connections
         for (let xB = minX_P - my - 2; xB <= maxX_P + my + 2; xB++) {
           let currentCost = 0;
@@ -55,15 +113,17 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
           
           let prev = [mx, my] as Coordinate;
           
-          // Horizontal step
+          // Horizontal segment of RLS
           if (xB !== mx) {
             for (let x = mx + stepX; stepX > 0 ? x <= xB : x >= xB; x += stepX) {
               currentEdges.push({ from: prev, to: [x, my] });
               prev = [x, my];
               
-              if (isSnet(x, my)) {
+              if (anchored.has(`${x},${my}`)) {
                 hit = true;
                 break;
+              } else if (P_set.has(`${x},${my}`)) {
+                // Free to pass through existing P block
               } else {
                 currentCost++;
                 currentPath.push([x, my]);
@@ -71,15 +131,17 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
             }
           }
           
-          // Vertical step
+          // Vertical drop segment of RLS
           if (!hit) {
             for (let yDrop = my - 1; yDrop >= 0; yDrop--) {
               currentEdges.push({ from: prev, to: [xB, yDrop] });
               prev = [xB, yDrop];
               
-              if (isSnet(xB, yDrop)) {
+              if (anchored.has(`${xB},${yDrop}`)) {
                 hit = true;
-                break; // Docked to something below
+                break; 
+              } else if (P_set.has(`${xB},${yDrop}`)) {
+                // Free to pass down through existing P block
               } else {
                 currentCost++;
                 currentPath.push([xB, yDrop]);

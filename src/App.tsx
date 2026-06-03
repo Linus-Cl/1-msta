@@ -58,7 +58,6 @@ export default function App() {
   const [showDirections, setShowDirections] = useState<boolean>(true);
   const [showRanks, setShowRanks] = useState<boolean>(false);
   const [paintMode, setPaintMode] = useState<'add' | 'remove' | null>(null);
-  const [explanationExpanded, setExplanationExpanded] = useState<boolean>(true);
   const [codeViewerExpanded, setCodeViewerExpanded] = useState<boolean>(false);
 
   // Active terminal output log simulation
