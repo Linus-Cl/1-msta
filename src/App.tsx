@@ -22,11 +22,18 @@ import { PRESETS } from "./presets";
 import { Coordinate, SolutionStatus, SolverResponse, Preset } from "./types";
 
 export default function App() {
-  // Grid size variables: X from -2 to 10 (13 columns), Y from 0 to 8 (9 rows)
-  const MIN_GRID_X = -2;
-  const MAX_GRID_X = 8;
+  const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('sm');
+
+  const gridConfigs = {
+    sm: { minX: -2, maxX: 8, maxY: 6 },
+    md: { minX: -6, maxX: 14, maxY: 12 },
+    lg: { minX: -10, maxX: 20, maxY: 18 }
+  };
+
+  const MIN_GRID_X = gridConfigs[gridSize].minX;
+  const MAX_GRID_X = gridConfigs[gridSize].maxX;
   const MIN_GRID_Y = 0;
-  const MAX_GRID_Y = 6;
+  const MAX_GRID_Y = gridConfigs[gridSize].maxY;
 
   // Active polyomino P coordinates
   const [polyomino, setPolyomino] = useState<Coordinate[]>(PRESETS[0].coordinates);
@@ -97,6 +104,21 @@ export default function App() {
 
   // Handle Preset Selection
   const selectPreset = (preset: Preset) => {
+    // Auto adjust grid size based on coordinates
+    const minX = Math.min(...preset.coordinates.map(c => c[0]));
+    const maxX = Math.max(...preset.coordinates.map(c => c[0]));
+    const maxY = Math.max(...preset.coordinates.map(c => c[1]));
+    
+    if (minX < gridConfigs[gridSize].minX || maxX > gridConfigs[gridSize].maxX || maxY > gridConfigs[gridSize].maxY) {
+      if (minX >= gridConfigs.sm.minX && maxX <= gridConfigs.sm.maxX && maxY <= gridConfigs.sm.maxY) {
+        setGridSize('sm');
+      } else if (minX >= gridConfigs.md.minX && maxX <= gridConfigs.md.maxX && maxY <= gridConfigs.md.maxY) {
+        setGridSize('md');
+      } else {
+        setGridSize('lg');
+      }
+    }
+
     setPolyomino(preset.coordinates);
     setSelectedPresetId(preset.id);
     setSolverResult(null);
@@ -401,6 +423,18 @@ def solve_1msta_exact(polyomino_coords):
                   <span>Ränge einblenden (Rank_x_y)</span>
                 </label>
                 <Info className="w-3 h-3 text-slate-400 cursor-help" title="Zeigt den errechneten Baum-Rang des CP-SAT Modells (Höhe im directed forest)." />
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100/50 mt-2">
+                <span className="text-xs text-slate-500">Grid Größe anpassen</span>
+                <select 
+                  value={gridSize}
+                  onChange={(e) => setGridSize(e.target.value as 'sm' | 'md' | 'lg')}
+                  className="text-xs border border-slate-200 rounded px-2 py-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="sm">Klein (11x7)</option>
+                  <option value="md">Mittel (21x13)</option>
+                  <option value="lg">Groß (31x19)</option>
+                </select>
               </div>
             </div>
           </div>
