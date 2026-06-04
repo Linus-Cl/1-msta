@@ -64,11 +64,11 @@ def solve_1msta_json(polyomino_coords, time_limit=5.0):
                 # Rank relation to eliminate cycles
                 model.Add(Rank[x, y] > Rank[cx, cy]).OnlyEnforceIf(edge)
             
-            # If (x,y) occupied, exactly one support neighbor must be active
-            model.AddExactlyOne(edge_vars).OnlyEnforceIf(Occ[x, y])
-            # If (x,y) empty, no outgoing support edges
-            for edge in edge_vars:
-                model.Add(edge == 0).OnlyEnforceIf(Occ[x, y].Not())
+            # If (x,y) occupied, exactly one support neighbor must be active.
+            # If empty, no outgoing support edges.
+            # This is elegantly expressed as sum(edge_vars) == Occ[x,y] since edge_vars are booleans.
+            model.Add(sum(edge_vars) == Occ[x, y])
+
 
     # --- OBJECTIVE ---
     # Minimize sum of support pixels

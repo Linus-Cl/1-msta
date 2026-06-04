@@ -277,11 +277,10 @@ def solve_1msta_exact(polyomino_coords):
                 # Wenn edge aktiv, muss Rank abnehmen (Zyklusverhinderung / Gravitationsfluss)
                 model.Add(Rank[x, y] > Rank[cx, cy]).OnlyEnforceIf(edge)
             
-            # Wenn (x,y) belegt ist, muss ES EXAKT EINEN Support-Nachbarn geben
-            model.AddExactlyOne(edge_vars).OnlyEnforceIf(Occ[x, y])
-            # Wenn (x,y) leer ist, darf es keine ausgehenden Kanten geben
-            for edge in edge_vars:
-                model.Add(edge == 0).OnlyEnforceIf(Occ[x, y].Not())
+            # Wenn (x,y) belegt ist, muss ES EXAKT EINEN Support-Nachbarn geben.
+            # Wenn leer, darf es keine ausgehenden Kanten geben.
+            # Ausgedrückt als Summenbedingung über die boolschen Kantenvariablen.
+            model.Add(sum(edge_vars) == Occ[x, y])
 
     # --- ZIELFUNKTION ---
     model.Minimize(sum(S.values()))
