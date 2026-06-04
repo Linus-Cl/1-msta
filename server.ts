@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { exec, spawn } from "child_process";
 import { createServer as createViteServer } from "vite";
+import { solveBUSPH } from "./src/bu_sph";
+import { generateRandomPolyomino } from "./src/polyomino_generator";
 
 const app = express();
 const PORT = 3000;
@@ -64,6 +66,86 @@ app.get("/api/info", (req, res) => {
     version: "1.0.0",
     engine: "CP-SAT (OR-Tools)"
   });
+});
+
+app.post("/api/adversarial", async (req, res) => {
+  try {
+    const duration = req.body.duration || 5; // seconds
+    const max_size = req.body.max_size || 15;
+    
+    const startTime = Date.now();
+    const endTime = startTime + (duration * 1000);
+    
+    // Generate many random instances and score them with BU-SPH
+    let candidates: any[] = [];
+    
+    while (Date.now() < endTime) {
+      // Small timeout to not completely block the event loop? 
+      // Actually we are inside async so it's ok, but it's synchronous CPU bound.
+      // We'll yield slightly if needed, but for small durations it's fine.
+      const polyomino = generateRandomPolyomino(max_size);
+      
+      const heurResult = solveBUSPH(polyomino);
+      // We are looking for cases where support is needed, heurResult.support.length > 0
+      if (heurResult.status === 'FEASIBLE') {
+         candidates.push({
+             polyomino,
+             heurCost: heurResult.support.length
+         });
+      }
+    }
+    
+    // Sort by heurCost descending
+    candidates.sort((a, b) => b.heurCost - a.heurCost);
+    
+    // Take the top 10 to evaluate exactly with CP-SAT
+    const topCandidates = candidates.slice(0, 10);
+    
+    const runCP_SAT = (poly: any): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        const p = spawn("python3", ["./api_solver.py"]);
+        let stdoutBuffer = "";
+        let stderrBuffer = "";
+        p.stdout.on("data", (d) => stdoutBuffer += d.toString());
+        p.stderr.on("data", (d) => stderrBuffer += d.toString());
+        p.on("close", (code) => {
+          if (code === 0) {
+            try { resolve(JSON.parse(stdoutBuffer.trim())); } 
+            catch(e) { reject(e); }
+          } else {
+            resolve({ status: 'INFEASIBLE' }); // just fallback
+          }
+        });
+        p.stdin.write(JSON.stringify({ coordinates: poly, time_limit: 5.0 }));
+        p.stdin.end();
+      });
+    };
+    
+    const evaluated = [];
+    for (const cand of topCandidates) {
+      if (cand.heurCost === 0) continue; // No support needed anyway
+      const cpResult = await runCP_SAT(cand.polyomino);
+      if (cpResult.status === 'OPTIMAL' || cpResult.status === 'FEASIBLE') {
+        const exactCost = cpResult.support.length;
+        // Avoid division by zero
+        const ratio = exactCost > 0 ? (cand.heurCost / exactCost) : (cand.heurCost > 0 ? 999 : 1);
+        evaluated.push({
+          polyomino: cand.polyomino,
+          heurCost: cand.heurCost,
+          exactCost,
+          ratio
+        });
+      }
+    }
+    
+    // Sort by worst ratio (BU-SPH performing bad compared to Opt)
+    evaluated.sort((a, b) => b.ratio - a.ratio);
+    
+    res.json({ instances: evaluated });
+  } catch (err: any) {
+    console.error("Adversarial error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 async function startServer() {

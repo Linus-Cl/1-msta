@@ -20,7 +20,7 @@ function computeAnchored(P_set: Set<string>, S_add: Set<string>): Set<string> {
     }
     for (const p of S_add) {
         const [x, y] = p.split(',').map(Number);
-        if (y === 0) anchored.add(p);
+        // Support structures CANNOT anchor to the floor directly.
         addToByY(x, y);
     }
     
@@ -143,12 +143,13 @@ export function solveBUSPH(polyomino: Coordinate[]): SolverResponse {
               } else if (P_set.has(`${xB},${yDrop}`)) {
                 // Free to pass down through existing P block
               } else {
-                currentCost++;
-                currentPath.push([xB, yDrop]);
                 if (yDrop === 0) {
-                  hit = true;
+                  // Hit the floor but it's not anchored (not P). This is a failure!
+                  hit = false;
                   break;
                 }
+                currentCost++;
+                currentPath.push([xB, yDrop]);
               }
             }
           }

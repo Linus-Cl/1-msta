@@ -32,7 +32,12 @@ def solve_1msta_json(polyomino_coords, time_limit=5.0):
                 S[x, y] = model.NewConstant(0)
                 Occ[x, y] = model.NewConstant(1)
             else:
-                S[x, y] = model.NewBoolVar(f'S_{x}_{y}')
+                # Support structures CANNOT be built on the floor (y=0).
+                # Only the original polyomino can act as an anchor at y=0.
+                if y == 0:
+                    S[x, y] = model.NewConstant(0)
+                else:
+                    S[x, y] = model.NewBoolVar(f'S_{x}_{y}')
                 Occ[x, y] = S[x, y]
             
             Rank[x, y] = model.NewIntVar(0, max_nodes, f'Rank_{x}_{y}')

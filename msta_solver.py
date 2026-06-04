@@ -31,7 +31,12 @@ def solve_1msta_exact(polyomino_coords):
                 S[x, y] = model.NewConstant(0) # P-Pixel brauchen keinen Support-Eintrag
                 Occ[x, y] = model.NewConstant(1)
             else:
-                S[x, y] = model.NewBoolVar(f'S_{x}_{y}')
+                # Support-Strukturen duerfen nicht auf dem Boden (y=0) gebaut werden.
+                # Nur das originale Polyomino kann als Anker dienen.
+                if y == 0:
+                    S[x, y] = model.NewConstant(0)
+                else:
+                    S[x, y] = model.NewBoolVar(f'S_{x}_{y}')
                 Occ[x, y] = S[x, y]
             
             Rank[x, y] = model.NewIntVar(0, max_nodes, f'Rank_{x}_{y}')

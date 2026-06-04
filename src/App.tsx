@@ -24,6 +24,7 @@ import { Coordinate, SolutionStatus, SolverResponse, Preset } from "./types";
 import { solveBUSPH } from "./bu_sph";
 
 import { GridView } from "./components/GridView";
+import { AdversarialPanel } from "./components/AdversarialPanel";
 
 export default function App() {
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('sm');
@@ -52,7 +53,8 @@ export default function App() {
 
   const [solverError, setSolverError] = useState<string | null>(null);
   
-  // Selected preset
+  // Custom or Adversarial presets
+  const [presets, setPresets] = useState<Preset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
 
   // Visual toggles
@@ -408,8 +410,7 @@ def solve_1msta_exact(polyomino_coords):
               </button>
 
               <button
-                id="btn_reset_default"
-                onClick={() => selectPreset(PRESETS[0])}
+                onClick={() => selectPreset(presets[0])}
                 className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-medium px-3 py-2.5 rounded-lg flex items-center justify-center space-x-2 active:scale-98 transition duration-150 text-xs cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -464,8 +465,8 @@ def solve_1msta_exact(polyomino_coords):
               <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
               <span>Presets & Benchmarks</span>
             </h2>
-            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-              {PRESETS.map((p) => (
+            <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar pb-6">
+              {presets.map((p) => (
                 <button
                   key={p.id}
                   id={`preset_btn_${p.id}`}
@@ -505,6 +506,30 @@ def solve_1msta_exact(polyomino_coords):
                 </div>
               ))}
             </div>
+
+            <div className="mt-6">
+              <AdversarialPanel 
+                  addLog={addLog}
+                  onInstancesFound={(instances) => {
+                      setPresets(instances);
+                      if (instances.length > 0) {
+                          selectPreset(instances[0]);
+                      }
+                  }}
+              />
+              {presets !== PRESETS && (
+                  <button 
+                      onClick={() => {
+                          setPresets(PRESETS);
+                          selectPreset(PRESETS[0]);
+                      }}
+                      className="w-full mt-3 text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 border border-slate-700 rounded bg-slate-800 hover:bg-slate-700"
+                  >
+                      Reset to Default Presets
+                  </button>
+              )}
+            </div>
+
           </div>
 
         </section>
@@ -630,7 +655,7 @@ def solve_1msta_exact(polyomino_coords):
       {/* Footer detailing project parameters */}
       <footer id="app_footer" className="border-t border-slate-200 bg-white py-4 text-center text-[10px] uppercase tracking-widest font-bold text-slate-400 mt-auto font-sans">
         <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-2">
-          <span>Google AI Studio Build &bull; 1-MSTA Playground <span className="font-mono text-indigo-400 ml-1">v1.0</span></span>
+          <span>1-MSTA Playground <span className="font-mono text-indigo-400 ml-1">v1.0</span></span>
           <span>Präzise Zyklus-Eliminierung über gerichtet wachsende Spanning-Arboreszenzen</span>
         </div>
       </footer>
