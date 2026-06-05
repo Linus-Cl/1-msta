@@ -70,39 +70,16 @@ app.get("/api/info", (req, res) => {
 
 app.post("/api/adversarial", async (req, res) => {
   try {
-    const duration = req.body.duration || 5; // seconds
-    const max_size = req.body.max_size || 15;
-    
-    const startTime = Date.now();
-    const endTime = startTime + (duration * 1000);
-    
-    // Generate many random instances and score them with BU-SPH
-    let candidates: any[] = [];
-    
-    while (Date.now() < endTime) {
-      // Small timeout to not completely block the event loop? 
-      // Actually we are inside async so it's ok, but it's synchronous CPU bound.
-      // We'll yield slightly if needed, but for small durations it's fine.
-      const polyomino = generateRandomPolyomino(max_size);
-      
-      const heurResult = solveBUSPH(polyomino);
-      // We are looking for cases where support is needed, heurResult.support.length > 0
-      if (heurResult.status === 'FEASIBLE') {
-         candidates.push({
-             polyomino,
-             heurCost: heurResult.support.length
-         });
-      }
-    }
-    
-    // Sort by heurCost descending
-    candidates.sort((a, b) => b.heurCost - a.heurCost);
-    
-    // Take the top 10 to evaluate exactly with CP-SAT
-    const topCandidates = candidates.slice(0, 10);
-    
+    const { 
+      mode = 'time',       // 'time' | 'count'
+      duration = 5,        // seconds (used when mode === 'time')
+      count = 100,         // number of instances (used when mode === 'count')
+      max_size = 15,       // exact polyomino size to generate
+      top_k = 10           // how many worst-cases to verify with CP-SAT
+    } = req.body;
+
     const runCP_SAT = (poly: any): Promise<any> => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const p = spawn("python3", ["./api_solver.py"]);
         let stdoutBuffer = "";
         let stderrBuffer = "";
@@ -110,25 +87,73 @@ app.post("/api/adversarial", async (req, res) => {
         p.stderr.on("data", (d) => stderrBuffer += d.toString());
         p.on("close", (code) => {
           if (code === 0) {
-            try { resolve(JSON.parse(stdoutBuffer.trim())); } 
-            catch(e) { reject(e); }
+            try { resolve(JSON.parse(stdoutBuffer.trim())); }
+            catch(e) { resolve({ status: 'PARSE_ERROR' }); }
           } else {
-            resolve({ status: 'INFEASIBLE' }); // just fallback
+            resolve({ status: 'INFEASIBLE' });
           }
         });
         p.stdin.write(JSON.stringify({ coordinates: poly, time_limit: 5.0 }));
         p.stdin.end();
       });
     };
-    
-    const evaluated = [];
+
+    // --- Phase 1: Generate candidates and score with BU-SPH (fast) ---
+    const candidates: any[] = [];
+
+    if (mode === 'count') {
+      // Count-based: generate exactly `count` polyominoes
+      for (let i = 0; i < count; i++) {
+        const polyomino = generateRandomPolyomino(max_size);
+        const heurResult = solveBUSPH(polyomino);
+        if (heurResult.status === 'FEASIBLE') {
+          candidates.push({ polyomino, heurCost: heurResult.support.length });
+        }
+      }
+    } else {
+      // Time-based: generate as many as possible within `duration` seconds
+      const endTime = Date.now() + (duration * 1000);
+      while (Date.now() < endTime) {
+        const polyomino = generateRandomPolyomino(max_size);
+        const heurResult = solveBUSPH(polyomino);
+        if (heurResult.status === 'FEASIBLE') {
+          candidates.push({ polyomino, heurCost: heurResult.support.length });
+        }
+      }
+    }
+
+    // --- Phase 2: Build score summary for ALL candidates ---
+    // We include raw heurCosts (lightweight: just numbers) so the client
+    // can build histograms and stats without the full polyomino data.
+    candidates.sort((a, b) => b.heurCost - a.heurCost);
+    const allHeurCosts: number[] = candidates.map(c => c.heurCost);
+
+    // Build a distribution: how many instances had each heurCost value
+    const maxHeur = allHeurCosts.length > 0 ? allHeurCosts[0] : 0;
+    const scoreDist: Record<number, number> = {};
+    for (const cost of allHeurCosts) {
+      scoreDist[cost] = (scoreDist[cost] ?? 0) + 1;
+    }
+
+    // Summary stats
+    const mean = allHeurCosts.length > 0
+      ? allHeurCosts.reduce((a, b) => a + b, 0) / allHeurCosts.length
+      : 0;
+    const sorted = [...allHeurCosts].sort((a, b) => a - b);
+    const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+
+    // --- Phase 3: Take top-K by heuristic cost and verify with CP-SAT ---
+    const topCandidates = candidates.slice(0, top_k);
+
+    const evaluated: any[] = [];
     for (const cand of topCandidates) {
-      if (cand.heurCost === 0) continue; // No support needed anyway
+      if (cand.heurCost === 0) continue;
       const cpResult = await runCP_SAT(cand.polyomino);
       if (cpResult.status === 'OPTIMAL' || cpResult.status === 'FEASIBLE') {
         const exactCost = cpResult.support.length;
-        // Avoid division by zero
-        const ratio = exactCost > 0 ? (cand.heurCost / exactCost) : (cand.heurCost > 0 ? 999 : 1);
+        const ratio = exactCost > 0
+          ? (cand.heurCost / exactCost)
+          : (cand.heurCost > 0 ? 999 : 1);
         evaluated.push({
           polyomino: cand.polyomino,
           heurCost: cand.heurCost,
@@ -137,11 +162,23 @@ app.post("/api/adversarial", async (req, res) => {
         });
       }
     }
-    
-    // Sort by worst ratio (BU-SPH performing bad compared to Opt)
+
     evaluated.sort((a, b) => b.ratio - a.ratio);
-    
-    res.json({ instances: evaluated });
+
+    res.json({
+      // Top verified worst-cases (full data incl. polyomino coords)
+      instances: evaluated,
+      // Full score data for analysis / download
+      all_heur_costs: allHeurCosts,
+      score_distribution: scoreDist,
+      summary: {
+        total_generated: candidates.length,
+        mean_heur_cost: Math.round(mean * 100) / 100,
+        median_heur_cost: median,
+        max_heur_cost: maxHeur,
+        worst_cases_verified: evaluated.length,
+      }
+    });
   } catch (err: any) {
     console.error("Adversarial error:", err);
     res.status(500).json({ error: err.message });

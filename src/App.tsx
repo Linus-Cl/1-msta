@@ -510,10 +510,11 @@ def solve_1msta_exact(polyomino_coords):
             <div className="mt-6">
               <AdversarialPanel 
                   addLog={addLog}
-                  onInstancesFound={(instances) => {
+                  onInstancesFound={(instances, totalGenerated) => {
                       setPresets(instances);
                       if (instances.length > 0) {
                           selectPreset(instances[0]);
+                          addLog(`Loaded ${instances.length} adversarial presets from ${totalGenerated} generated instances.`);
                       }
                   }}
               />
