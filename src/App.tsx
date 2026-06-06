@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { 
-  Play, 
-  Trash2, 
-  HelpCircle, 
-  Code, 
-  Cpu, 
-  BookOpen, 
-  Sparkles, 
-  CheckCircle2, 
-  AlertTriangle, 
-  RefreshCw, 
+import {
+  Play,
+  Trash2,
+  HelpCircle,
+  Code,
+  Cpu,
+  BookOpen,
+  Sparkles,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
   Info,
   Layers,
   FileCode,
@@ -31,8 +31,8 @@ export default function App() {
 
   const gridConfigs = {
     sm: { minX: -2, maxX: 8, maxY: 6 },
-    md: { minX: -6, maxX: 14, maxY: 12 },
-    lg: { minX: -10, maxX: 20, maxY: 18 }
+    md: { minX: -10, maxX: 10, maxY: 12 },
+    lg: { minX: -10, maxX: 20, maxY: 28 }
   };
 
   const MIN_GRID_X = gridConfigs[gridSize].minX;
@@ -42,17 +42,17 @@ export default function App() {
 
   // Active polyomino P coordinates
   const [polyomino, setPolyomino] = useState<Coordinate[]>(PRESETS[0].coordinates);
-  
+
   // Solver outcomes for CP-SAT
   const [resultCPSAT, setResultCPSAT] = useState<SolverResponse | null>(null);
   const [statusCPSAT, setStatusCPSAT] = useState<SolutionStatus>('IDLE');
-  
+
   // Solver outcomes for BU-SPH
   const [resultBUSPH, setResultBUSPH] = useState<SolverResponse | null>(null);
   const [statusBUSPH, setStatusBUSPH] = useState<SolutionStatus>('IDLE');
 
   const [solverError, setSolverError] = useState<string | null>(null);
-  
+
   // Custom or Adversarial presets
   const [presets, setPresets] = useState<Preset[]>(PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
@@ -98,11 +98,11 @@ export default function App() {
   const handleCellInteraction = (x: number, y: number, interactionType: 'down' | 'enter') => {
     setPolyomino(prev => {
       const exists = prev.some(([px, py]) => px === x && py === y);
-      
+
       if (interactionType === 'down') {
         const newMode = exists ? 'remove' : 'add';
         setPaintMode(newMode);
-        
+
         invalidateSolver();
         if (newMode === 'add') {
           addLog(`Pixel gezeichnet an (${x}, ${y})`);
@@ -130,7 +130,7 @@ export default function App() {
     const minX = Math.min(...preset.coordinates.map(c => c[0]));
     const maxX = Math.max(...preset.coordinates.map(c => c[0]));
     const maxY = Math.max(...preset.coordinates.map(c => c[1]));
-    
+
     if (minX < gridConfigs[gridSize].minX || maxX > gridConfigs[gridSize].maxX || maxY > gridConfigs[gridSize].maxY) {
       if (minX >= gridConfigs.sm.minX && maxX <= gridConfigs.sm.maxX && maxY <= gridConfigs.sm.maxY) {
         setGridSize('sm');
@@ -175,7 +175,7 @@ export default function App() {
     }
 
     addLog("Starte Evaluierung (CP-SAT Optimum vs BU-SPH Approximation)...");
-    
+
     // 1. Run BU-SPH Algorithm locally (Fast)
     setStatusBUSPH('RUNNING');
     const busphRes = solveBUSPH(polyomino);
@@ -186,7 +186,7 @@ export default function App() {
     // 2. Run CP-SAT through our Python API
     setStatusCPSAT('RUNNING');
     setSolverError(null);
-    
+
     try {
       const response = await fetch("/api/solve", {
         method: "POST",
@@ -199,7 +199,7 @@ export default function App() {
       }
 
       const resData: SolverResponse = await response.json();
-      
+
       if (resData.status === "ERROR" || !resData.support) {
         throw new Error(resData.message || "Unbekannter Solver-Fehler.");
       }
@@ -301,7 +301,7 @@ def solve_1msta_exact(polyomino_coords):
 
   return (
     <div id="msta_app_root" className="min-h-screen flex flex-col antialiased bg-slate-50 text-slate-900 border border-slate-200">
-      
+
       {/* Upper Navigation Bar */}
       <header id="app_header" className="border-b border-slate-700 bg-slate-900 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
@@ -312,7 +312,7 @@ def solve_1msta_exact(polyomino_coords):
             <h1 className="text-xl font-bold font-sans text-white tracking-tight uppercase">1-MSTA Engine <span className="font-mono text-xs text-indigo-400 ml-2 font-semibold">CP-SAT vs BU-SPH</span></h1>
           </div>
         </div>
-        
+
         <div className="flex items-center space-x-6 text-sm font-medium">
           <div className="flex items-center space-x-2 text-white">
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span> SYSTEM ACTIVE
@@ -325,10 +325,10 @@ def solve_1msta_exact(polyomino_coords):
 
       {/* Main Workspace Layout divided horizontally */}
       <main className="flex-1 w-full max-w-full mx-auto px-4 md:px-6 py-6 grid grid-cols-1 xl:grid-cols-12 gap-6">
-        
+
         {/* Left Side: Parameters, Presets and Interactive Controls (4 cols) */}
         <section id="sidebar_controls" className="xl:col-span-3 xl:col-start-1 flex flex-col space-y-6">
-          
+
           {/* Quick Metrics Bar */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col space-y-3 shadow-sm">
             <div className="flex justify-between items-center">
@@ -336,7 +336,7 @@ def solve_1msta_exact(polyomino_coords):
                 <span className="text-xs font-mono text-slate-400">POLYOMINO (P)</span>
                 <span className="text-xl font-bold text-slate-800 tracking-tight">{polyomino.length} <span className="text-xs font-normal text-slate-500">Pixel</span></span>
               </div>
-              
+
               <div className="flex flex-col items-end border-l border-slate-200 pl-4">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">APPROX. FAKTOR</span>
                 <span className="text-xl font-bold text-indigo-600 tracking-tight">
@@ -344,19 +344,19 @@ def solve_1msta_exact(polyomino_coords):
                 </span>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
               <div className="flex flex-col p-2 bg-slate-50 rounded border border-slate-200">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">CP-SAT (Optimum)</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-slate-800">{statusCPSAT === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-slate-400"/> : cpsatCount}</span>
+                  <span className="text-lg font-bold text-slate-800">{statusCPSAT === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-slate-400" /> : cpsatCount}</span>
                   <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${statusCPSAT === 'OPTIMAL' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{statusCPSAT}</span>
                 </div>
               </div>
               <div className="flex flex-col p-2 bg-indigo-50 rounded border border-indigo-100">
                 <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-1">BU-SPH (Heuristic)</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-indigo-700">{statusBUSPH === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-400"/> : busphCount}</span>
+                  <span className="text-lg font-bold text-indigo-700">{statusBUSPH === 'RUNNING' ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" /> : busphCount}</span>
                   <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${statusBUSPH === 'FEASIBLE' ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-200 text-slate-500'}`}>{statusBUSPH}</span>
                 </div>
               </div>
@@ -422,10 +422,10 @@ def solve_1msta_exact(polyomino_coords):
             <div className="pt-2 border-t border-slate-100 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs text-slate-500 flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    checked={showDirections} 
-                    onChange={(e) => setShowDirections(e.target.checked)} 
+                  <input
+                    type="checkbox"
+                    checked={showDirections}
+                    onChange={(e) => setShowDirections(e.target.checked)}
                     className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white cursor-pointer"
                   />
                   <span>Support-Kraftrichtung einblenden</span>
@@ -434,10 +434,10 @@ def solve_1msta_exact(polyomino_coords):
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-xs text-slate-500 flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    checked={showRanks} 
-                    onChange={(e) => setShowRanks(e.target.checked)} 
+                  <input
+                    type="checkbox"
+                    checked={showRanks}
+                    onChange={(e) => setShowRanks(e.target.checked)}
                     className="rounded border-slate-300 text-indigo-500 focus:ring-indigo-500 bg-white cursor-pointer"
                   />
                   <span>Ränge einblenden (Rank_x_y)</span>
@@ -446,7 +446,7 @@ def solve_1msta_exact(polyomino_coords):
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-slate-100/50 mt-2">
                 <span className="text-xs text-slate-500">Grid Größe anpassen</span>
-                <select 
+                <select
                   value={gridSize}
                   onChange={(e) => setGridSize(e.target.value as 'sm' | 'md' | 'lg')}
                   className="text-xs border border-slate-200 rounded px-2 py-1 bg-slate-50 text-slate-700 outline-none focus:border-indigo-500 cursor-pointer"
@@ -471,11 +471,10 @@ def solve_1msta_exact(polyomino_coords):
                   key={p.id}
                   id={`preset_btn_${p.id}`}
                   onClick={() => selectPreset(p)}
-                  className={`w-full text-left p-2.5 rounded-lg border transition-all duration-150 cursor-pointer flex flex-col space-y-1 ${
-                    selectedPresetId === p.id 
-                    ? "bg-indigo-50 border-indigo-200" 
+                  className={`w-full text-left p-2.5 rounded-lg border transition-all duration-150 cursor-pointer flex flex-col space-y-1 ${selectedPresetId === p.id
+                    ? "bg-indigo-50 border-indigo-200"
                     : "bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between w-full">
                     <span className={`font-semibold text-xs ${selectedPresetId === p.id ? "text-indigo-700" : "text-slate-700"}`}>{p.name}</span>
@@ -508,26 +507,26 @@ def solve_1msta_exact(polyomino_coords):
             </div>
 
             <div className="mt-6">
-              <AdversarialPanel 
-                  addLog={addLog}
-                  onInstancesFound={(instances, totalGenerated) => {
-                      setPresets(instances);
-                      if (instances.length > 0) {
-                          selectPreset(instances[0]);
-                          addLog(`Loaded ${instances.length} adversarial presets from ${totalGenerated} generated instances.`);
-                      }
-                  }}
+              <AdversarialPanel
+                addLog={addLog}
+                onInstancesFound={(instances, totalGenerated) => {
+                  setPresets(instances);
+                  if (instances.length > 0) {
+                    selectPreset(instances[0]);
+                    addLog(`Loaded ${instances.length} adversarial presets from ${totalGenerated} generated instances.`);
+                  }
+                }}
               />
               {presets !== PRESETS && (
-                  <button 
-                      onClick={() => {
-                          setPresets(PRESETS);
-                          selectPreset(PRESETS[0]);
-                      }}
-                      className="w-full mt-3 text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 border border-slate-700 rounded bg-slate-800 hover:bg-slate-700"
-                  >
-                      Reset to Default Presets
-                  </button>
+                <button
+                  onClick={() => {
+                    setPresets(PRESETS);
+                    selectPreset(PRESETS[0]);
+                  }}
+                  className="w-full mt-3 text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 border border-slate-700 rounded bg-slate-800 hover:bg-slate-700"
+                >
+                  Reset to Default Presets
+                </button>
               )}
             </div>
 
@@ -537,10 +536,10 @@ def solve_1msta_exact(polyomino_coords):
 
         {/* Right Side: Visual Canvas Grid Workspace (8 cols) */}
         <section id="vertical_canvas_area" className="xl:col-span-9 flex flex-col space-y-6 overflow-hidden">
-          
+
           {/* Main Visual Interactive Workspace Canvas */}
           <div className="bg-slate-100 border border-slate-200 rounded-2xl p-6 shadow-inner flex flex-col relative w-full overflow-hidden">
-            
+
             <div className="flex flex-col mb-4">
               <span className="text-[10px] tracking-widest font-mono text-indigo-600 uppercase font-bold">Interactive Mirrors</span>
               <span className="text-xs text-slate-500">Edit the Polyomino (P) on either grid, results synchronize automatically.</span>
@@ -556,7 +555,7 @@ def solve_1msta_exact(polyomino_coords):
 
             {/* Side-by-side Grids */}
             <div className="flex max-w-full overflow-x-auto space-x-6 pb-4 custom-scrollbar lg:flex-row flex-col lg:space-y-0 space-y-6">
-              
+
               {/* Left Grid: CP-SAT */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xl flex-1 flex flex-col min-w-max">
                 <div className="flex items-center justify-between mb-4">
@@ -567,9 +566,9 @@ def solve_1msta_exact(polyomino_coords):
                   </div>
                 </div>
                 <div className="flex justify-center border border-slate-100 p-2 rounded-xl bg-slate-50">
-                  <GridView 
-                    polyomino={polyomino} 
-                    solverResult={resultCPSAT} 
+                  <GridView
+                    polyomino={polyomino}
+                    solverResult={resultCPSAT}
                     handleCellInteraction={handleCellInteraction}
                     minX={MIN_GRID_X} maxX={MAX_GRID_X} minY={MIN_GRID_Y} maxY={MAX_GRID_Y}
                     showDirections={showDirections} showRanks={showRanks}
@@ -587,9 +586,9 @@ def solve_1msta_exact(polyomino_coords):
                   </div>
                 </div>
                 <div className="flex justify-center border border-slate-100 p-2 rounded-xl bg-slate-50">
-                  <GridView 
-                    polyomino={polyomino} 
-                    solverResult={resultBUSPH} 
+                  <GridView
+                    polyomino={polyomino}
+                    solverResult={resultBUSPH}
                     handleCellInteraction={handleCellInteraction}
                     minX={MIN_GRID_X} maxX={MAX_GRID_X} minY={MIN_GRID_Y} maxY={MAX_GRID_Y}
                     showDirections={showDirections} showRanks={showRanks}
@@ -615,7 +614,7 @@ def solve_1msta_exact(polyomino_coords):
                     <FileCode className="w-4 h-4 text-indigo-500" />
                     <span>Exact Solver CP-SAT Code (Python, OR-Tools)</span>
                   </h3>
-                  <button 
+                  <button
                     onClick={() => setCodeViewerExpanded(false)}
                     className="text-slate-400 hover:text-slate-800 transition cursor-pointer"
                   >
@@ -627,9 +626,9 @@ def solve_1msta_exact(polyomino_coords):
                   <pre className="text-[11px] font-mono text-emerald-400 bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-inner overflow-x-auto max-h-[380px] leading-relaxed select-all">
                     {pythonCode}
                   </pre>
-                  
+
                   <div className="absolute top-3 right-3 flex space-x-2">
-                    <button 
+                    <button
                       onClick={() => {
                         navigator.clipboard.writeText(pythonCode);
                         addLog("Quellcode in die Zwischenablage kopiert!");
